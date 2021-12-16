@@ -1,21 +1,3 @@
----
-title: "Final-Project"
-output: pdf_document
----
-
-# Authors:
-Miles Allan
-
-Abhinav Ankur
-
-Maulishree Gupta
-
-\pagebreak
-
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
-```
-
 # Introduction
 
   In the UCI Machine Learning Database, there are many different datasets that are used by students, educators, and researchers all over the world. It is a great source for statisticians, allowing them to perform data analysis on a variety of real-world examples. Of all these examples, we will be looking at one that involves real estate valuation from the Sindian District of New Taipei City, Taiwan. Here, we will be focusing on 8 different factors: house price, transaction year, house age, distance to nearest MRT station, number of convenience stores, latitude, longitude, and transaction month. We will test these factors to see which of them, if any, significantly affect the real estate prices.
