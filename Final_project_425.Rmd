@@ -1,0 +1,305 @@
+---
+title: "Final-Project"
+output: pdf_document
+---
+
+# Authors:
+Miles Allan
+
+Abhinav Ankur
+
+Maulishree Gupta
+
+\pagebreak
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# Introduction
+
+  In the UCI Machine Learning Database, there are many different datasets that are used by students, educators, and researchers all over the world. It is a great source for statisticians, allowing them to perform data analysis on a variety of real-world examples. Of all these examples, we will be looking at one that involves real estate valuation from the Sindian District of New Taipei City, Taiwan. Here, we will be focusing on 8 different factors: house price, transaction year, house age, distance to nearest MRT station, number of convenience stores, latitude, longitude, and transaction month. We will test these factors to see which of them, if any, significantly affect the real estate prices.
+  
+# Data analysis
+
+```{r}
+  library(readxl)
+  library(ggplot2)
+  suppressPackageStartupMessages(library(dplyr))
+  
+  #reading excel
+  r_est = read_excel("/Users/maulishreegupta/Downloads/Real_estate_valuation_data_set.xlsx")[-1]
+
+  #renaming column names
+  colnames(r_est) <- c('Transaction_Date','House_Age','Distance','Num_Stores_NearBy', 'Latitude', 'Longitude', 'Target')
+```
+
+Feature transformation:
+
+```{r}
+  #extract month from the transaction year
+  r_est['Month'] = round((r_est['Transaction_Date'] %% 1)*12)
+  r_est$Month[r_est$Month==0] = 12      # For December month
+  
+  #converting to categorical variables 
+  r_est$Transaction_Date = as.factor(r_est$Transaction_Date)
+  r_est$Month = as.factor(r_est$Month)
+```
+
+```{r}
+  #Dividing data into training and testing data into 80 and 20 respectively
+  smp_size = floor(0.80 * nrow(r_est))  
+  set.seed(123)
+  train_ind = sample(seq_len(nrow(r_est)), size = smp_size)
+  train = r_est[train_ind, ]
+  test = r_est[-train_ind, ]
+```
+
+## Response variables and predictors
+
+We will be modeling year, age, distance to station, number of convenience stores, latitude, longitude, and month to see what effects they have on the housing prices, which will be referred to as "target". These prices are measured as 1000 new taiwan dollars/ping (1 ping = 3.3 $m^2$).
+
+## Graphs
+
+```{r}
+par(mfrow=c(3,2))
+plot(r_est$Transaction_Date, r_est$Target, main = 'Transaction_Date vs Target', xlab = 'Transaction_Date', ylab = 'Target')
+plot(r_est$House_Age, r_est$Target, main = 'House_Age vs Target', xlab = 'House_Age', ylab = 'Target')
+plot(r_est$Distance, r_est$Target, main = 'Distance vs Target', xlab = 'Distance', ylab = 'Target')
+plot(r_est$Num_Stores_NearBy, r_est$Target, main = 'Num_Stores_NearBy vs Target', xlab = 'Num_Stores_NearBy', ylab = 'Target')
+plot(r_est$Latitude, r_est$Target, main = 'Latitude vs Target', xlab = 'Latitude', ylab = 'Target')
+plot(r_est$Longitude, r_est$Target, main = 'Longitude vs Target', xlab = 'Longitude', ylab = 'Target')
+```
+
+```{r}
+plot(train$Distance, train$Target, xlab = "Distance to nearest MRT station (meters)", ylab = "House Price (NT$1000)", main = "Plot 2: House Price vs Distance to Station")
+
+plot4 = ggplot(train, aes(Num_Stores_NearBy, Target, group = Num_Stores_NearBy)) + geom_boxplot() + stat_summary(fun = "mean")
+suppressWarnings(print(plot4 + ggtitle("Plot 3: Prices (NT$1000) vs # of Local Convenience Stores") + xlab("# of Stores") + ylab("Prices (NT$1000")))
+
+plot5=ggplot(train, aes(x=Longitude, y=Latitude,  color =  Target))+geom_point()
+plot5a = plot5+scale_color_gradient(low = "blue", high = "red")
+plot5a + ggtitle("Plot 4: Prices (NT$1000) per Geographic Location") + xlab("Longitude") + ylab("Latitude")
+
+hist(train$Distance) # Skewed rightly
+hist(log(train$Distance)) # Asymptotically Normal
+```
+
+## Graph descriptions
+
+Plot 1 represents scatter plot of target variable with all other variables.
+
+Plot 2 shows the relationship between the houses' distances to the nearest MRT station and the house prices. This graph seems to show a negative correlation, i.e. the further a house is from the nearest MRT station, the cheaper it tends to be.
+
+Plot 3 shows the number of convenience stores vs the house prices. The graph seems to show that as the number of convenience stores nearby increases, the houses tend to get more expensive.
+
+Plot 4 denotes the prices (labeled 'y') of the houses' at their geographic locations. From this graph, it seems as if the houses tend to increase in price as you head to the northeastern part of the city.
+
+
+The histogram in Plot 5 and 6, which gives us a distribution of the values of the distances. Right away, we notice that the distance is skewed right. We decided to address this problem by taking the log of the distance and plotting those values in plot 6. Notice that they are asymptotically distributed. As a result, we will be taking the log of the distance in our model(this step will be applied towards the end of model diagnostics).
+
+
+For this model, the transaction years and months are categorical. The remaining variables are quantitative.
+
+
+# Models
+
+For this dataset, we will be testing two models. First, let's check start with a full, multiple linear regression model, with year and months being cagtegorical.
+
+## Model 1
+
+```{r}
+simp = lm(Target ~ ., data = train)
+summary(simp)
+```
+
+Since the transaction dates are measured as months, from August 2012 to July 2013, a full calendar year. As a result, the months variable will cause collinearity problems, so we must remove it. From there, we will run diagnostic tests on the model.
+
+```{r}
+simp1a = lm(Target ~ House_Age + Distance + Num_Stores_NearBy + Latitude + Transaction_Date + Longitude, data = train)
+summary(simp1a)
+```
+
+### Unusual observations
+
+Let's start with high leverage points in our training set. 
+
+```{r}
+  # Check for leverage points:
+  suppressPackageStartupMessages(library(faraway))
+  lev=influence(simp1a)$hat
+  n=331; p=sum(diag(lev));
+  lev[lev>2*p/n]
+```
+
+As you can see, we have 6 high leverage points. When we check for outliers,
+```{r}
+ # Check for outliers
+  jack=rstudent(simp1a); 
+  print(qt(.05/(2*n), 323)) # Bonferroni correction
+  sort(abs(jack), decreasing=TRUE)[1:5]  
+```
+
+we see that 2 points that have the absolute values of their residuals greater than 3.834853 (points 304 and 307). This tells us that, none of the high leverage points are outliers. Let's make a model that removes those points.
+
+```{r}
+simp2 = lm(Target ~ House_Age + Distance + Num_Stores_NearBy + Latitude + Transaction_Date + Longitude, data = train[-c(304, 307),])
+summary(simp2)
+```
+
+```{r}
+library(caret)
+#RMSE for training data
+pred1 = predict(simp2, type ="response", newdata = test)
+res = postResample((pred1), test$Target)
+RMSE = res[1]
+RMSE
+```
+
+We note that the RMSE of the testing data for the Second Model is 7.444222. Multiple R squared value is 0.6287.
+
+After removing the outliers, we then have to check for highly influential points.
+
+```{r}
+  #checking for highly influential points
+  cook = cooks.distance(simp2)
+  max(cook)
+```
+
+For this model, the point with the highest Cook's distance is 0.0712847. As you can see, this is below 1, meaning it's not highly influential. Therefore, we can conclude that there are no highly influential points in this model.
+
+### Diagnostic tests and Transformations
+
+Since we have removed the outliers and highly influential points, let's try to perform some diagnostic tests. First, we will be testing for heterocedasticity, or non-constant variance, with a Breusch-Pagan test.
+
+```{r}
+  #checking for heterocedasticity
+  suppressPackageStartupMessages(library(lmtest))
+  bptest(simp2)
+```
+
+Our p-value for this test was 0.132. Since that is greater than 0.05, we fail to say that variance is non-constant. Now, let's check to see if there is any autocorrelation of the errors through a Durbin-Watson test.
+
+```{r}
+  #check for constant variance
+  dwtest(simp2)
+```
+
+The p-value for that test is 0.2944. Since the p-value is also greater than 0.05 for this test as well, we fail to say there is any autocorrelation. Lastly, let's check to see if this model's residuals are normally distributed through a Shapiro-Wilks test.
+
+```{r}
+  #check for normality of errors
+  shapiro.test(residuals(simp2))
+```
+
+The p-value for this test is very small, at $4.166 * 10^{-9}$. Since the p-value is less than 0.05, we can say that the errors are NOT normally distributed. Fortunately, we can try to fix this by making a box-cox transformation. 
+
+```{r}
+  #applying box cox
+  suppressPackageStartupMessages(library(MASS))
+  boxcox_simp = boxcox(simp2, plotit = TRUE, lambda = seq(-1, 1, 1/10))
+```
+
+If zero lies in the confidence interval for the value that maximizes the likelihood of the data, $\lambda$, as it does above, it would be reasonable to apply a log transformation of the response variable. Therefore, in this case, we will do a log transformation of the target variable. In addition to that, we will take the log of the distances to the nearest MRT station, which will result in a normal distribution of this predictor. 
+
+```{r}
+  simp3 = lm(log(Target) ~ House_Age + log(Distance) + Num_Stores_NearBy + Latitude + Transaction_Date + Longitude, data = train[-c(304, 307),])
+  summary(simp3)
+```
+
+Our final linear model will have the *log* of our target variable as our response. We will include the following predictors: transaction date, house age, the *log* of the distance to MRT station, number of stores nearby, latitude, and longitude. The corresponding R square is 0.7535
+
+## Model testing error
+
+The model above was generated with a training subset of our dataset. This contains 80% of our total data. The remaining 20% was saved as "testing data." Ultimately, this is used to test the model we made from the training set, measuring its RMSE (root mean squared error).
+
+```{r}
+  #RMSE
+  pred = predict(simp3, type ="response", newdata = test)
+  res = postResample(exp(pred), test$Target)
+  
+  RMSE = res[1]
+  RMSE
+```
+
+For this example, our RMSE 5.919964 on our testing data subset.
+
+## 2nd model
+
+Applying ridge regression on our dataset. To perform a ridge regression with cross-validation, we used the cv.glmnet() function with alpha=0. In addition, the lambda values are also automatically selected, on the log-scale.
+
+```{r}
+  suppressPackageStartupMessages(library(glmnet))
+  set.seed(3)
+  
+  #training data
+  train_ridge = train[-8]    #removing month
+  train_ridge$Distance = log(train_ridge$Distance)  #converting distance to log of distance
+  train_ridge$Target = log(train_ridge$Target)   #converting target to log of target
+  train_ridge$Transaction_Date <- as.numeric(train_ridge$Transaction_Date)  #converting transaction date to numerical value
+
+  #training data (Performing same transformations as test data)
+  test_ridge = test[-8]
+  test_ridge$Distance = log(test_ridge$Distance)    
+  test_ridge$Target = log(test_ridge$Target)
+  test_ridge$Transaction_Date <- as.numeric(test_ridge$Transaction_Date)
+  
+  fit2 = cv.glmnet(x = data.matrix(train_ridge[, -7]), y = train_ridge$Target, nfolds = 10, alpha = 0)
+
+  plot(fit2)
+  lambda_min = fit2$lambda.min
+  lambda_min
+```
+$\lambda$ is minimum at 0.02925874. 
+We plotted the cross-validation error against the $\lambda$ values, then selected the corresponding $\lambda$ with the smallest error. It should be noted that $\lambda$ is taken as log $\lambda$ in the graph.
+
+```{r}
+  #RMSE of the testing data
+  pred2 = predict(fit2, newx = data.matrix(test_ridge[, -7]), s = "lambda.min")
+
+  sqrt(mean((exp(pred2) - exp(test_ridge$Target))^2))
+```
+
+The RMSE obtained through this model is 6.173336.
+
+Coefficients for the model:
+```{r}
+  coef(fit2, s = "lambda.min")
+```
+
+
+
+## Random Forest Model
+
+Random Forest is a supervised learning algorithm which takes a subset of observations and variables to build decision trees. It uses multiple decision trees in tandem to get a more accurate and stable prediction. This happens because when we take uncorrelated models (decision trees), then we get a better prediction that depending only on one model.
+
+For our modeling,we did hit and trial for tuning our hyper parameters. We chose mtry = 4, meaning that we randomly sample 4 variables for each split. Nodesize was chosen as 10, which indicates the minimum size of terminal nodes. For ntree we chose a high value of 5000, so that we can have many models to get a more accurate result.
+
+```{r}
+  #applying random forest
+  suppressPackageStartupMessages(library(randomForest))
+
+  rf.fit <- randomForest(Target ~ ., data = train, ntree= 5000, mtry = 4,nodesize= 10,
+                         importance = TRUE, na.action = na.omit)
+  rf.fit
+```
+
+```{r}
+  #testing data RMSE
+  rf.predict = predict(rf.fit,newdata = test)
+
+  rmse = function(x,y) sqrt(mean((x-y)^2))
+
+  # Testing RMSE
+  rmse(test$Target, rf.predict)
+```
+
+RMSE obtained from Random Forest is 5.963177.
+
+
+```{r}
+  #extracting important features for random forest
+  i_scores <- varImp(rf.fit, conditional=TRUE)
+  i_scores
+```
+Using feature importance given by random forest, we found that distance is the most important feature, followed by latitude. Month and transaction date have the least importance.
